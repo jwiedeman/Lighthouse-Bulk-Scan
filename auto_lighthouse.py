@@ -10,29 +10,39 @@ from tqdm import tqdm
 import logging
 
 # User-configurable variables
-input_url = 'hhs.gov'
+input_url = 'stopbullying.gov'
 output_path = 'lighthouse_reports'
-max_urls = 1
-max_workers = 10 # 1-3 on a laptop, 3-10 on a desktop, 10-20 on a desktop with gigabit connection. (More = slower possible aggregate result, also a janky way to simulate a throttled device / connection)
+max_urls = 99999 # how many urls to grab from sitemap, 99999 for all urls
+max_workers = 10
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-lighthouse_path = os.path.join('C:/Users/palantir/AppData/Roaming/npm', 'lighthouse.cmd')
+lighthouse_path = ''  # Leave empty for auto-detection, or add your lighthouse PATH
+csv_input_file = ''  # Optional CSV file containing URLs to test instead of using sitemaps, COL A list of urls expected
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def check_lighthouse_path():
-    if not os.path.isfile(lighthouse_path):
-        logging.critical(f"Lighthouse executable not found at {lighthouse_path}. Please ensure Lighthouse is installed and the path is correct.")
-        raise FileNotFoundError(f"Lighthouse executable not found at {lighthouse_path}")
+def get_lighthouse_path():
+    """Returns the path to the Lighthouse executable, checking default locations if not manually specified."""
+    if lighthouse_path:
+        return lighthouse_path
+    default_paths = [
+        os.path.join(os.getenv('APPDATA', ''), 'npm', 'lighthouse.cmd'),
+        os.path.join(os.getenv('LOCALAPPDATA', ''), 'npm', 'lighthouse.cmd'),
+        os.path.join(os.getenv('HOME', ''), '.npm-global', 'bin', 'lighthouse')
+    ]
+    for path in default_paths:
+        if os.path.isfile(path):
+            return path
+    logging.critical("Lighthouse executable not found. Please ensure Lighthouse is installed.")
+    raise FileNotFoundError("Lighthouse executable not found.")
 
 def get_valid_url(base_url):
-    logging.info(f"Trying to get a valid URL for base URL: {base_url}")
+    """Attempts to find a valid URL from common variants."""
     variants = [f'https://{base_url}', f'http://{base_url}', f'https://www.{base_url}', f'http://www.{base_url}']
     for url in variants:
         try:
             response = requests.get(url, headers=headers, timeout=10)
             if response.status_code == 200:
-                logging.info(f"Valid URL found: {url}")
                 return url
         except requests.exceptions.RequestException:
             continue
@@ -40,7 +50,7 @@ def get_valid_url(base_url):
     return None
 
 def clean_url(url):
-    logging.info(f"Cleaning URL: {url}")
+    """Cleans up URL to ensure it has a proper scheme and netloc."""
     parsed_url = urlparse(url)
     if not parsed_url.scheme:
         parsed_url = parsed_url._replace(scheme='http')
@@ -49,34 +59,34 @@ def clean_url(url):
     return urlunparse(parsed_url)
 
 def parse_sitemap(url):
-    logging.info(f"Parsing sitemap: {url}")
+    """Parses sitemap XML to extract URLs, recursively if needed."""
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'xml')
         sitemap_tags = soup.find_all('sitemap')
         if sitemap_tags:
-            urls = []
-            for sitemap in sitemap_tags:
-                sitemap_url = sitemap.find('loc').text
-                urls.extend(parse_sitemap(sitemap_url))
-            return urls
-        return [loc.text for loc in soup.find_all('loc') if is_html_page(loc.text)]
-    except requests.exceptions.HTTPError as e:
-        logging.error(f"HTTP error parsing sitemap {url}: {e}")
-        return []
+            return [url for sitemap in sitemap_tags for url in parse_sitemap(sitemap.find('loc').text)]
+        return [tag.find('loc').text for tag in soup.find_all('url') if is_html_page(tag.find('loc').text)]
     except Exception as e:
         logging.error(f"Error parsing sitemap {url}: {e}")
-        raise
+        return []
 
 def is_html_page(url):
-    return any(url.lower().endswith(ext) for ext in ['.html', '.htm', '/'])
+    """Determines if a URL likely points to an HTML page by checking its extension."""
+    non_html_extensions = (
+        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp',
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        '.zip', '.rar', '.exe', '.dmg', '.mp3', '.mp4', '.avi', '.mov',
+        '.flv', '.wmv', '.mkv', '.ogg', '.ogv', '.webm', '.mpg', '.mpeg'
+    )
+    return not any(url.lower().endswith(ext) for ext in non_html_extensions)
 
-def run_lighthouse(url, output_path, mode):
-    logging.info(f"Running Lighthouse for URL: {url} in {mode} mode")
+def run_lighthouse(url, mode):
+    """Runs Lighthouse audit for a given URL and mode."""
     file_name = f"{output_path}/{url.replace('https://', '').replace('http://', '').replace('/', '_')}_{mode}.json"
     command = [
-        lighthouse_path, url, '--output=json', f'--output-path={file_name}', 
+        get_lighthouse_path(), url, '--output=json', f'--output-path={file_name}', 
         '--only-categories=performance,accessibility,best-practices,seo', '--save-assets'
     ]
     if mode == 'mobile':
@@ -87,39 +97,22 @@ def run_lighthouse(url, output_path, mode):
         command.append('--preset=desktop')
     try:
         subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        logging.info(f"Lighthouse completed for URL: {url} in {mode} mode")
         return file_name
-    except (FileNotFoundError, subprocess.CalledProcessError) as e:
+    except subprocess.CalledProcessError as e:
         logging.error(f"Lighthouse command error for URL: {url} in {mode} mode: {e}")
-        raise
+        return None
 
-# Function to extract detailed data
 def extract_detailed_data(file_path, mode):
+    """Extracts detailed data from Lighthouse JSON report."""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        
-        # Check if categories exist in the JSON
         categories = data.get('categories', {})
-        if not categories:
-            logging.warning(f"No categories found in JSON file: {file_path}")
-        
-        # Extract scores with default value if missing
-        performance_score = categories.get('performance', {}).get('score', None)
-        accessibility_score = categories.get('accessibility', {}).get('score', None)
-        best_practices_score = categories.get('best-practices', {}).get('score', None)
-        seo_score = categories.get('seo', {}).get('score', None)
-
         audits = data.get('audits', {})
-        if not audits:
-            logging.warning(f"No audits found in JSON file: {file_path}")
-        
-        # Flatten audit details, excluding any keys with 'description' or '_id'
         audit_details = {f"{audit_id}_{detail_key}": detail_value 
                          for audit_id, audit in audits.items() 
                          for detail_key, detail_value in audit.items() 
                          if 'description' not in detail_key and '_id' not in detail_key}
-        
         return {
             'url': data.get('finalDisplayedUrl', ''),
             'mode': mode,
@@ -129,10 +122,10 @@ def extract_detailed_data(file_path, mode):
             'requested_url': data.get('requestedUrl', ''),
             'main_document_url': data.get('mainDocumentUrl', ''),
             'final_displayed_url': data.get('finalDisplayedUrl', ''),
-            'performance_score': performance_score,
-            'accessibility_score': accessibility_score,
-            'best_practices_score': best_practices_score,
-            'seo_score': seo_score,
+            'performance_score': categories.get('performance', {}).get('score', None),
+            'accessibility_score': categories.get('accessibility', {}).get('score', None),
+            'best_practices_score': categories.get('best-practices', {}).get('score', None),
+            'seo_score': categories.get('seo', {}).get('score', None),
             'first_contentful_paint': audits.get('first-contentful-paint', {}).get('displayValue', ''),
             'speed_index': audits.get('speed-index', {}).get('displayValue', ''),
             'largest_contentful_paint': audits.get('largest-contentful-paint', {}).get('displayValue', ''),
@@ -140,17 +133,16 @@ def extract_detailed_data(file_path, mode):
             'total_blocking_time': audits.get('total-blocking-time', {}).get('displayValue', ''),
             'cumulative_layout_shift': audits.get('cumulative-layout-shift', {}).get('displayValue', ''),
             'top_20_slowest_scripts': "; ".join(get_top_slowest_scripts(audits)),
-            'network_requests': "",
+            'network_requests': extract_network_requests(file_path.replace('.json', '-0.devtoolslog.json')),
             'timing_total': data.get('timing', {}).get('total', 0),
-            **audit_details  # Include all audit details, excluding descriptions and _id
+            **audit_details
         }
     except Exception as e:
         logging.error(f"Error extracting detailed data from {file_path}: {e}")
         return {}
 
-
 def get_top_slowest_scripts(audits):
-    logging.info("Getting top slowest scripts")
+    """Extracts the top 20 slowest scripts from the audits."""
     try:
         script_timings = [(item['url'], item.get('duration', 0)) 
                           for item in audits.get('network-requests', {}).get('details', {}).get('items', []) 
@@ -159,10 +151,10 @@ def get_top_slowest_scripts(audits):
         return [script[0] for script in sorted_scripts]
     except Exception as e:
         logging.error(f"Error extracting slowest scripts: {e}")
-        raise
+        return []
 
 def extract_network_requests(file_path):
-    logging.info(f"Extracting network requests from file: {file_path}")
+    """Extracts network requests from the Lighthouse devtools log."""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -170,64 +162,71 @@ def extract_network_requests(file_path):
         return "; ".join(requests)
     except Exception as e:
         logging.error(f"Error extracting network requests from {file_path}: {e}")
-        raise
+        return ""
 
-def filter_string_columns(df):
-    string_columns = [col for col in df.columns if df[col].dtype == "object"]
-    return df[string_columns]
-
-logging.info(f"Starting script for input URL: {input_url}")
-check_lighthouse_path()
-base_url = get_valid_url(input_url)
-if not base_url:
-    logging.critical("No valid base URL found. Exiting.")
-    raise Exception("No valid base URL found. Exiting.")
-
-sitemap_urls = [f'{base_url.rstrip("/")}/sitemap.xml', f'{base_url.rstrip("/")}/sitemap_index.xml']
-urls = []
-for sitemap_url in sitemap_urls:
+def load_urls_from_csv(csv_file):
+    """Loads URLs from a specified CSV file."""
     try:
-        urls.extend(parse_sitemap(clean_url(sitemap_url)))
+        df = pd.read_csv(csv_file)
+        urls = df.iloc[:, 0].dropna().tolist()
+        return urls
     except Exception as e:
-        logging.error(f"Skipping sitemap due to error: {e}")
+        logging.error(f"Error loading URLs from CSV file {csv_file}: {e}")
+        return []
 
-urls = list(set(url for url in urls if is_html_page(url)))
-logging.info(f"Total unique HTML URLs collected: {len(urls)}")
-if not urls:
-    logging.critical("No URLs found in any sitemap. Exiting.")
-    raise Exception("No URLs found in any sitemap.")
+def main():
+    logging.info(f"Starting script for input URL: {input_url}")
+    os.makedirs(output_path, exist_ok=True)
 
-urls = urls[:max_urls]
+    if csv_input_file:
+        urls = load_urls_from_csv(csv_input_file)
+        logging.info(f"Loaded {len(urls)} URLs from {csv_input_file}")
+    else:
+        base_url = get_valid_url(input_url)
+        if not base_url:
+            logging.critical("No valid base URL found. Exiting.")
+            return
+        sitemap_urls = [f'{base_url.rstrip("/")}/sitemap.xml', f'{base_url.rstrip("/")}/sitemap_index.xml']
+        urls = []
+        for sitemap_url in sitemap_urls:
+            urls.extend(parse_sitemap(clean_url(sitemap_url)))
 
-os.makedirs(output_path, exist_ok=True)
-results = []
+    urls = list(set(urls))[:max_urls]
+    logging.info(f"Total unique HTML URLs collected: {len(urls)}")
+
+    if not urls:
+        logging.critical("No URLs found. Exiting.")
+        return
+
+    with open('urls_tested.csv', 'w') as f:
+        f.write('\n'.join(urls))
+    logging.info("Tested URLs saved as urls_tested.csv")
+
+    results = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_url, url, mode) for url in urls for mode in ('desktop', 'mobile')]
+        with tqdm(total=len(futures), dynamic_ncols=True) as pbar:
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    results.append(result)
+                    pbar.set_postfix_str(f"Processing: {result['url']} ({result['mode']})")
+                pbar.update(1)
+
+    df = pd.DataFrame(results)
+    df.to_csv('lighthouse_summary.csv', index=False)
+    logging.info("Summary saved as lighthouse_summary.csv")
 
 def process_url(url, mode):
+    """Process each URL by running Lighthouse and extracting data."""
     try:
-        report = run_lighthouse(url, output_path, mode)
-        data = extract_detailed_data(report, mode)
-        data['network_requests'] = extract_network_requests(report.replace('.json', '-0.devtoolslog.json'))
-        return data
+        report = run_lighthouse(url, mode)
+        if report:
+            return extract_detailed_data(report, mode)
     except Exception as e:
         logging.error(f"Error processing URL {url} in {mode} mode: {e}")
-        return {}
+    return {}
 
-with ThreadPoolExecutor(max_workers=max_workers) as executor:
-    futures = [executor.submit(process_url, url, mode) for url in urls for mode in ('desktop', 'mobile')]
-    with tqdm(total=len(futures), dynamic_ncols=True) as pbar:
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
-                pbar.set_postfix_str(f"Processing: {result['url']} ({result['mode']})")
-            pbar.update(1)
-
-df = pd.DataFrame(results)
-df = filter_string_columns(df)
-df.to_csv('lighthouse_summary.csv', index=False)
-logging.info("Summary saved as lighthouse_summary.csv")
-
-# for file in os.listdir(output_path):
-#     if file.endswith('.json'):
-#         os.remove(os.path.join(output_path, file))
-# logging.info("All JSON files have been deleted.")
+if __name__ == '__main__':
+    main()

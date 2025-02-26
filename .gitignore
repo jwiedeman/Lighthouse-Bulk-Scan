@@ -106,3 +106,6 @@ public/
 
 # SvelteKit build output
 .svelte-kit
+
+*lighthouse_reports/
+lighthouse_summary.csv

@@ -57,6 +57,21 @@ This script automates running Google Lighthouse audits across a large set of URL
 
     If the command runs, you're set. Otherwise, install it or specify a custom path in `lighthouse_path` (see below).
 
+
+## Docker
+
+If you prefer running the audit in a container, build the provided `Dockerfile`:
+
+```bash
+docker build -t lighthouse-bulk-scan .
+```
+
+Then run the container, passing any CLI arguments after the image name:
+
+```bash
+docker run --rm lighthouse-bulk-scan --help
+```
+
 ----
 
 ## Script Overview

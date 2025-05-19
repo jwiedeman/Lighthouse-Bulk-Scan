@@ -15,4 +15,4 @@ dependencies = [
 ]
 
 [project.scripts]
-lighthouse-bulk-scan = "main:main"
+lighthouse-bulk-scan = "lighthouse_bulk_scan.cli:main"

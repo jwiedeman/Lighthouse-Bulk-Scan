@@ -14,9 +14,9 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     yaml = None
 
-from sitemap_parser import fetch_sitemaps_from_robots, parse_sitemap
-from lighthouse_runner import get_lighthouse_path, run_lighthouse
-from report_parser import extract_detailed_data
+from .sitemap import fetch_sitemaps_from_robots, parse_sitemap
+from .runner import get_lighthouse_path, run_lighthouse
+from .report import extract_detailed_data
 
 def parse_display_value(val):
     """Extract numeric portion from strings like '1.2 s' or '240 ms'."""

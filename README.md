@@ -52,7 +52,7 @@ The latest version includes:
 
 ## Installation
 
-1. **Clone or copy** this script (e.g., `lighthouse_bulk_audit.py`) into a folder of your choice.
+1. **Clone or copy** this repository into a folder of your choice.
 2. **Install** the Python dependencies listed above:
 
     ```bash
@@ -160,7 +160,7 @@ output_path = 'lighthouse_reports'
 Then just run:
 
 ```bash
-python lighthouse_bulk_audit.py
+python -m lighthouse_bulk_scan.cli
 ```
 
 - The script will:
@@ -186,7 +186,7 @@ output_path = 'my_lh_reports'
 Then run:
 
 ```bash
-python lighthouse_bulk_audit.py
+python -m lighthouse_bulk_scan.cli
 ```
 
 - The script **ignores** any sitemaps and uses `my_urls.csv`.
@@ -205,7 +205,7 @@ lighthouse_path = '/usr/local/bin/lighthouse'  # Example for Linux/Mac
 and run:
 
 ```bash
-python lighthouse_bulk_audit.py
+python -m lighthouse_bulk_scan.cli
 ```
 
 ----

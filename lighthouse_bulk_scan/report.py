@@ -1,4 +1,4 @@
-# report_parser.py
+"""Functions for extracting data from Lighthouse JSON reports."""
 import json
 import logging
 from typing import Dict, Any

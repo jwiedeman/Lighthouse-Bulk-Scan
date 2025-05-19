@@ -1,6 +1,6 @@
 import pytest
-from main import parse_display_value
-from sitemap_parser import is_html_page
+from lighthouse_bulk_scan.cli import parse_display_value
+from lighthouse_bulk_scan.sitemap import is_html_page
 
 @pytest.mark.parametrize("val,expected", [
     ("1.2 s", 1.2),

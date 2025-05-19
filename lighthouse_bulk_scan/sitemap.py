@@ -1,4 +1,4 @@
-# sitemap_parser.py
+"""Utility functions for locating and parsing sitemaps."""
 import requests
 import logging
 import xml.etree.ElementTree as ET

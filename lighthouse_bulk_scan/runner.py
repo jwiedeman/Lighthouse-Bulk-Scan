@@ -1,3 +1,5 @@
+"""Helpers for running the Lighthouse CLI."""
+
 import os
 import subprocess
 import logging

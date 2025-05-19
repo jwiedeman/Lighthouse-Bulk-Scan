@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lighthouse-bulk-scan"
+version = "0.1.0"
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "pandas",
+    "lxml",
+    "PyYAML",
+    "SQLAlchemy",
+]
+
+[project.scripts]
+lighthouse-bulk-scan = "main:main"

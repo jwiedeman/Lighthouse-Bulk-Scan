@@ -2,6 +2,14 @@
 
 This script automates running Google Lighthouse audits across a large set of URLs in parallel. It can scrape sitemaps for URLs or accept a list of URLs from a CSV file, then run both **desktop** and **mobile** Lighthouse analyses, and finally compile the results into a CSV summary.
 
+The latest version includes:
+
+- Optional YAML/JSON configuration files (`--config-file`)
+- Ability to write results to a database via `--db-uri`
+- Command line entry point via `pyproject.toml`
+- Configurable log file path (`--log-file`)
+- Basic unit tests using `pytest`
+
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
@@ -36,6 +44,8 @@ This script automates running Google Lighthouse audits across a large set of URL
     - bs4 (beautifulsoup4)
     - requests
     - tqdm
+    - PyYAML
+    - SQLAlchemy
     - logging (part of the Python standard library, so no extra install needed)
 
 ----
@@ -46,7 +56,7 @@ This script automates running Google Lighthouse audits across a large set of URL
 2. **Install** the Python dependencies listed above:
 
     ```bash
-    pip install pandas beautifulsoup4 requests tqdm
+    pip install -r requirements.txt
     ```
 
 3. **Verify** that you have Lighthouse installed and in your system path:
@@ -218,6 +228,9 @@ python lighthouse_bulk_audit.py
 
 ## Known Limitations / Caveats
 
-1. **Script vs. CLI Flags**
+- Lighthouse must be installed separately via `npm install -g lighthouse`.
+- The optional database table (`lighthouse_results`) must exist beforehand.
+- Large sites can take a long time to audit.
+## Testing
+Run `pytest` to execute unit tests.
 
-    - The script does **not** parse command-line flags dynamically. Configuration is done by editing variables in the script. If you need robust

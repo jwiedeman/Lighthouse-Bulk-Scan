@@ -2,3 +2,6 @@ requests==2.28.2
 beautifulsoup4==4.11.1
 pandas==1.5.3
 lxml==4.9.2
+PyYAML==6.0
+SQLAlchemy==2.0.23
+pytest==7.4.0

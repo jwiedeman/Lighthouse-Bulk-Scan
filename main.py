@@ -1,11 +1,18 @@
 import os
 import csv
+import json
 import logging
 import argparse
 import pandas as pd
 import re
 from datetime import datetime
 from urllib.parse import urlparse
+from typing import Any
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - optional dependency
+    yaml = None
 
 from sitemap_parser import fetch_sitemaps_from_robots, parse_sitemap
 from lighthouse_runner import get_lighthouse_path, run_lighthouse
@@ -50,6 +57,7 @@ def main():
                         help="Single URL to audit, bypassing sitemaps/CSV.")
     parser.add_argument("--csv-input-file", default="",
                         help="Path to a CSV file with URLs in the first column (sitemaps ignored if set).")
+    parser.add_argument("--config-file", default="", help="Optional YAML/JSON config file with defaults.")
 
     # Limits & outputs
     parser.add_argument("--max-urls", type=int, default=99999,
@@ -58,6 +66,7 @@ def main():
                         help="Top-level directory for storing Lighthouse JSON outputs.")
     parser.add_argument("--csv-output", default="lighthouse_summary.csv",
                         help="(Legacy) final CSV name if needed; we now store domain-timestamp CSV inside /reports.")
+    parser.add_argument("--db-uri", default="", help="SQLAlchemy DB URI for saving results (optional).")
 
     # Lighthouse & logging
     parser.add_argument("--lighthouse-path", default="",
@@ -66,6 +75,7 @@ def main():
                         help="Disable mobile mode (only run desktop).")
     parser.add_argument("--debug", action="store_true",
                         help="Set Python logger to DEBUG level for more logs.")
+    parser.add_argument("--log-file", default="", help="Optional path to log file.")
     parser.add_argument("--verbose-lh", action="store_true",
                         help="Pass --verbose to Lighthouse for extra Lighthouse logs.")
 
@@ -77,12 +87,30 @@ def main():
 
     args, unknown_lh_flags = parser.parse_known_args()
 
+    # Load optional config file and override defaults
+    if args.config_file:
+        try:
+            with open(args.config_file, "r", encoding="utf-8") as cf:
+                if args.config_file.endswith((".yaml", ".yml")) and yaml:
+                    cfg = yaml.safe_load(cf)
+                else:
+                    cfg = json.load(cf)
+            if isinstance(cfg, dict):
+                for k, v in cfg.items():
+                    if hasattr(args, k) and getattr(args, k) == parser.get_default(k):
+                        setattr(args, k, v)
+        except Exception as e:
+            print(f"Failed to load config file {args.config_file}: {e}")
+
     # 1) Logging
     log_level = logging.DEBUG if args.debug else logging.INFO
+    handlers: list[Any] = [logging.StreamHandler()]
+    if args.log_file:
+        handlers.append(logging.FileHandler(args.log_file))
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler()]
+        handlers=handlers
     )
 
     # If user wants LH verbose logs
@@ -287,6 +315,14 @@ def main():
 
         final_df.to_csv(csv_output_path, index=False)
         logging.info(f"Saved {len(df)} results (all runs) to {csv_output_path}")
+        if args.db_uri:
+            try:
+                from sqlalchemy import create_engine
+                engine = create_engine(args.db_uri)
+                final_df.to_sql('lighthouse_results', engine, if_exists='append', index=False)
+                logging.info("Results written to database")
+            except Exception as e:
+                logging.error(f"Failed to write to database: {e}")
     else:
         logging.warning("No successful Lighthouse runs, no CSV written.")
 
